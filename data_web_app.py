@@ -7,7 +7,7 @@ import plotly.express as px
 DATA_URL = "https://data.cityofnewyork.us/resource/h9gi-nx95.json"
 @st.cache_data
 def load_data():
-    data = pd.read_csv(DATA_URL, parse_dates=[['CRASH_DATE', 'CRASH_TIME']])
+    data = pd.read_csv(DATA_URL, parse_dates=[['CRASH DATE', 'CRASH TIME']])
     data.dropna(subset=['LATITUDE', 'LONGITUDE'], inplace=True)
     return data
 
