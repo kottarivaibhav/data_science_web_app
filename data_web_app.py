@@ -4,7 +4,7 @@ import numpy as np
 import plotly.express as px
 
 # Load data
-DATA_URL = "datacrash.csv"
+DATA_URL = "https://data.cityofnewyork.us/resource/h9gi-nx95.json"
 @st.cache_data
 def load_data():
     data = pd.read_csv(DATA_URL, parse_dates=[['CRASH_DATE', 'CRASH_TIME']])
