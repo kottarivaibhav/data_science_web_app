@@ -3,13 +3,20 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 
-# Load data
+# Load data from the API endpoint
 DATA_URL = "https://data.cityofnewyork.us/resource/h9gi-nx95.json"
+
 @st.cache_data
 def load_data():
-    data = pd.read_csv(DATA_URL, parse_dates=[['CRASH DATE', 'CRASH TIME']])
-    data.dropna(subset=['LATITUDE', 'LONGITUDE'], inplace=True)
-    return data
+    response = requests.get(DATA_URL)
+    data = response.json()
+    df = pd.DataFrame(data)
+    # Assuming the columns are named 'crash_date' and 'crash_time' in the JSON response
+    df['CRASH DATE'] = pd.to_datetime(df['crash_date'])
+    df['CRASH TIME'] = pd.to_datetime(df['crash_time']).dt.time
+    df['CRASH DATE & TIME'] = pd.to_datetime(df['CRASH DATE'].astype(str) + ' ' + df['CRASH TIME'].astype(str))
+    df.dropna(subset=['latitude', 'longitude'], inplace=True)
+    return df
 
 # Load data
 data = load_data()
