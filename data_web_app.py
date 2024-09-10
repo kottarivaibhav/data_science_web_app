@@ -1,61 +1,88 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import pydeck as pdk
 import plotly.express as px
-import requests
 
-# Load data from the API endpoint
-DATA_URL = "https://data.cityofnewyork.us/resource/h9gi-nx95.json"
+DATE_TIME = "date/time"
+DATA_URL = (
+    "crash.csv"
+)
 
-@st.cache_data
-def load_data():
-    try:
-        response = requests.get(DATA_URL)
-        response.raise_for_status()  # Check if the request was successful
-        data = response.json()
-        df = pd.DataFrame(data)
-        # Assuming the columns are named 'crash_date' and 'crash_time' in the JSON response
-        df['CRASH DATE'] = pd.to_datetime(df['crash_date'])
-        df['CRASH TIME'] = pd.to_datetime(df['crash_time']).dt.time
-        df['CRASH DATE & TIME'] = pd.to_datetime(df['CRASH DATE'].astype(str) + ' ' + df['CRASH TIME'].astype(str))
-        df.dropna(subset=['latitude', 'longitude'], inplace=True)
-        return df
-    except requests.exceptions.RequestException as e:
-        st.error(f"Error fetching data: {e}")
-        return pd.DataFrame()  # Return an empty DataFrame if there is an error
+st.title("Motor Vehicle Collisions in New York City")
+st.markdown("This application is a Streamlit dashboard that can be used "
+            "to analyze motor vehicle collisions in NYC 🗽💥🚗")
 
-# Load data
-data = load_data()
 
-# Sidebar for filter options
-st.sidebar.title("Filter Options")
-hour = st.sidebar.slider("Select Hour of Day", 0, 23, 12)
-modes = st.sidebar.multiselect("Select Mode(s) of Transportation", data['vehicle_type_code1'].unique() if not data.empty else [])
 
-# Filter data
-if not data.empty:
-    filtered_data = data[data['CRASH DATE & TIME'].dt.hour == hour]
-    if modes:
-        filtered_data = filtered_data[filtered_data['vehicle_type_code1'].isin(modes)]
+def load_data(nrows):
+    data = pd.read_csv(DATA_URL, nrows=nrows, parse_dates=[['CRASH_DATE', 'CRASH_TIME']])
+    data.dropna(subset=['LATITUDE', 'LONGITUDE'], inplace=True)
+    lowercase = lambda x: str(x).lower()
+    data.rename(lowercase, axis="columns", inplace=True)
+    data.rename(columns={"crash_date_crash_time": "date/time"}, inplace=True)
+    #data = data[['date/time', 'latitude', 'longitude']]
+    return data
 
-    # Map view of accidents
-    st.title("Motor Vehicle Collisions in NYC")
-    st.map(filtered_data[['latitude', 'longitude']])
+data = load_data(15000)
+data[['latitude','longitude']].to_csv('lat_long.csv', index=False)
 
-    # Time distribution of accidents
-    st.subheader("Accidents by Hour of Day")
-    hourly_distribution = filtered_data.groupby(filtered_data['CRASH DATE & TIME'].dt.hour).size()
-    st.bar_chart(hourly_distribution)
 
-    # Mode of transportation breakdown
-    if modes:
-        st.subheader("Accidents by Mode of Transportation")
-        mode_distribution = filtered_data['vehicle_type_code1'].value_counts()
-        st.bar_chart(mode_distribution)
+st.header("Where are the most people injured in NYC?")
+injured_people = st.slider("Number of persons injured in vehicle collisions", 0, 19)
+st.map(data.query("injured_persons >= @injured_people")[["latitude", "longitude"]].dropna(how="any"))
 
-    # Raw data
-    if st.checkbox("Show Raw Data"):
-        st.subheader("Raw Data")
-        st.write(filtered_data)
+st.header("How many collisions occur during a given time of day?")
+hour = st.slider("Hour to look at", 0, 23)
+original_data = data
+data = data[data[DATE_TIME].dt.hour == hour]
+st.markdown("Vehicle collisions between %i:00 and %i:00" % (hour, (hour + 1) % 24))
+
+midpoint = (np.average(data["latitude"]), np.average(data["longitude"]))
+st.write(pdk.Deck(
+    map_style="mapbox://styles/mapbox/light-v9",
+    initial_view_state={
+        "latitude": midpoint[0],
+        "longitude": midpoint[1],
+        "zoom": 11,
+        "pitch": 50,
+    },
+    layers=[
+        pdk.Layer(
+        "HexagonLayer",
+        data=data[['date/time', 'latitude', 'longitude']],
+        get_position=["longitude", "latitude"],
+        auto_highlight=True,
+        radius=100,
+        extruded=True,
+        pickable=True,
+        elevation_scale=4,
+        elevation_range=[0, 1000],
+        ),
+    ],
+))
+if st.checkbox("Show raw data", False):
+    st.subheader("Raw data by minute between %i:00 and %i:00" % (hour, (hour + 1) % 24))
+    st.write(data)
+
+st.subheader("Breakdown by minute between %i:00 and %i:00" % (hour, (hour + 1) % 24))
+filtered = data[
+    (data[DATE_TIME].dt.hour >= hour) & (data[DATE_TIME].dt.hour < (hour + 1))
+]
+hist = np.histogram(filtered[DATE_TIME].dt.minute, bins=60, range=(0, 60))[0]
+chart_data = pd.DataFrame({"minute": range(60), "crashes": hist})
+
+fig = px.bar(chart_data, x='minute', y='crashes', hover_data=['minute', 'crashes'], height=400)
+st.write(fig)
+
+st.header("Top 5 dangerous streets by affected class")
+select = st.selectbox('Affected class', ['Pedestrians', 'Cyclists', 'Motorists'])
+
+if select == 'Pedestrians':
+    st.write(original_data.query("injured_pedestrians >= 1")[["on_street_name", "injured_pedestrians"]].sort_values(by=['injured_pedestrians'], ascending=False).dropna(how="any")[:5])
+
+elif select == 'Cyclists':
+    st.write(original_data.query("injured_cyclists >= 1")[["on_street_name", "injured_cyclists"]].sort_values(by=['injured_cyclists'], ascending=False).dropna(how="any")[:5])
+
 else:
-    st.write("No data available to display.")
+    st.write(original_data.query("injured_motorists >= 1")[["on_street_name", "injured_motorists"]].sort_values(by=['injured_motorists'], ascending=False).dropna(how="any")[:5])
